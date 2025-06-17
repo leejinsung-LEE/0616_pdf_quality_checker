@@ -45,6 +45,7 @@ class SettingsWindow:
             self.window = tk.Tk()
         
         self.window.title("PDF 검수 시스템 설정")
+        self.window.protocol("WM_DELETE_WINDOW", self.close)
         
         # 화면 크기 확인
         screen_width = self.window.winfo_screenwidth()
@@ -126,6 +127,9 @@ class SettingsWindow:
         """스크롤 가능한 프레임 생성"""
         # 캔버스와 스크롤바 생성
         canvas = tk.Canvas(parent, highlightthickness=0, bg='white')
+        if "처리 옵션" in str(parent): self.processing_canvas = canvas
+        elif "알림" in str(parent): self.check_canvas = canvas
+        elif "폴더 설정" in str(parent): self.folder_canvas = canvas
         scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas)
         
@@ -152,7 +156,7 @@ class SettingsWindow:
         def on_mousewheel(event):
             canvas.yview_scroll(int(-1*(event.delta/120)), "units")
         
-        canvas.bind_all("<MouseWheel>", on_mousewheel)
+        canvas.bind_all("<MouseWheel>", self.on_mousewheel)
         
         canvas.configure(yscrollcommand=scrollbar.set)
         
@@ -1019,7 +1023,41 @@ class SettingsWindow:
             except Exception as e:
                 messagebox.showerror("오류", f"설정 내보내기 중 오류가 발생했습니다:\n{str(e)}")
     
-    def _import_settings(self):
+    
+    def on_mousewheel(self, event):
+        """마우스휠 이벤트 처리 - 안전성 개선"""
+        try:
+            if hasattr(event.widget, 'winfo_exists') and event.widget.winfo_exists():
+                current_tab = self.notebook.index('current')
+                canvas = None
+
+                if current_tab == 1:
+                    canvas = getattr(self, 'processing_canvas', None)
+                elif current_tab == 2:
+                    canvas = getattr(self, 'check_canvas', None)
+                elif current_tab == 3:
+                    canvas = getattr(self, 'folder_canvas', None)
+
+                if canvas and hasattr(canvas, 'winfo_exists') and canvas.winfo_exists():
+                    canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        except Exception:
+            pass
+
+
+
+    def close(self):
+        """설정 창 닫기 - 이벤트 바인딩 해제"""
+        try:
+            self.window.unbind_all("<MouseWheel>")
+            self.window.unbind_all("<Button-4>")
+            self.window.unbind_all("<Button-5>")
+        except:
+            pass
+        self._save_settings()
+        self.window.destroy()
+
+
+def _import_settings(self):
         """설정 가져오기"""
         filename = filedialog.askopenfilename(
             filetypes=[("JSON 파일", "*.json"), ("모든 파일", "*.*")]

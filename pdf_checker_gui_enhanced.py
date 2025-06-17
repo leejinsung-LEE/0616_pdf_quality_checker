@@ -2,12 +2,15 @@
 # PDF 품질 검수 시스템 v4.0 - Modern UI Edition
 # 실시간 현황과 드래그앤드롭 통합
 # 반응형 설정 창 크기
+# 2025.06.16 수정: 리포트 경로 문제 해결, Grid/Pack 충돌 수정
 
 """
 주요 변경사항:
 - 실시간 현황 탭에 드래그앤드롭 영역 통합
 - 설정 창 크기 최적화 및 반응형 디자인
 - 불필요한 탭 제거로 사용성 개선
+- 드래그앤드롭 시에도 파일 위치에 reports 폴더 생성
+- Grid/Pack 레이아웃 충돌 해결
 """
 
 import tkinter as tk
@@ -1204,15 +1207,23 @@ class EnhancedPDFCheckerGUI:
                    font=self.fonts['subheading']).pack(anchor='w', pady=(0, 10))
         
         profile_var = tk.StringVar(value='offset')
+        
+        # 라디오 버튼을 담을 프레임 (grid 대신 pack 사용)
+        radio_container = ctk.CTkFrame(profile_inner, fg_color="transparent")
+        radio_container.pack(fill='x', pady=(5, 0))
+        
         for i, profile in enumerate(Config.AVAILABLE_PROFILES):
+            row_frame = ctk.CTkFrame(radio_container, fg_color="transparent")
+            row_frame.pack(fill='x', pady=2)
+            
             ctk.CTkRadioButton(
-                profile_inner,
+                row_frame,
                 text=profile,
                 variable=profile_var,
                 value=profile,
                 radiobutton_width=20,
                 radiobutton_height=20
-            ).grid(row=i//2, column=i%2, sticky='w', padx=10, pady=5)
+            ).pack(side='left', padx=10)
         
         # 처리 옵션
         options_frame = ctk.CTkFrame(main_frame, fg_color=self.colors['bg_card'])
@@ -1376,15 +1387,23 @@ class EnhancedPDFCheckerGUI:
                    font=self.fonts['subheading']).pack(anchor='w', pady=(0, 10))
         
         profile_var = tk.StringVar(value=folder_info['profile'])
+        
+        # 라디오 버튼을 담을 프레임 (grid 대신 pack 사용)
+        radio_container = ctk.CTkFrame(profile_inner, fg_color="transparent")
+        radio_container.pack(fill='x', pady=(5, 0))
+        
         for i, profile in enumerate(Config.AVAILABLE_PROFILES):
+            row_frame = ctk.CTkFrame(radio_container, fg_color="transparent")
+            row_frame.pack(fill='x', pady=2)
+            
             ctk.CTkRadioButton(
-                profile_inner,
+                row_frame,
                 text=profile,
                 variable=profile_var,
                 value=profile,
                 radiobutton_width=20,
                 radiobutton_height=20
-            ).grid(row=i//2, column=i%2, sticky='w', padx=10, pady=5)
+            ).pack(side='left', padx=10)
         
         # 처리 옵션
         options_frame = ctk.CTkFrame(main_frame, fg_color=self.colors['bg_card'])
@@ -1579,10 +1598,9 @@ class EnhancedPDFCheckerGUI:
                 
                 # 잉크량 분석 옵션 확인
                 include_ink = folder_config.get('auto_fix_settings', {}).get(
-    'include_ink_analysis', 
-    Config.is_ink_analysis_enabled()  # 기본값을 Config에서 가져옴
-)
-
+                    'include_ink_analysis', 
+                    Config.is_ink_analysis_enabled()  # 기본값을 Config에서 가져옴
+                )
                 
                 # PDF 분석
                 analyzer = PDFAnalyzer()
@@ -1602,15 +1620,18 @@ class EnhancedPDFCheckerGUI:
                 # 드래그앤드롭과 폴더 감시 구분
                 is_folder_watch = folder_config.get('path') is not None
                 
+                # 리포트 저장 경로 결정 - 수정된 부분
                 if is_folder_watch:
                     # 감시 폴더 내에 하위 폴더 구조 생성
                     output_base = file_path.parent
                     reports_folder = output_base / 'reports'
                     reports_folder.mkdir(exist_ok=True)
                 else:
-                    # 드래그앤드롭의 경우 기본 reports 폴더 사용
-                    reports_folder = Config.REPORTS_PATH
-                    reports_folder.mkdir(exist_ok=True, parents=True)
+                    # 드래그앤드롭의 경우도 파일이 있는 위치에 reports 폴더 생성
+                    output_base = file_path.parent
+                    reports_folder = output_base / 'reports'
+                    reports_folder.mkdir(exist_ok=True)
+                    self.logger.log(f"드래그앤드롭 리포트 폴더 생성: {reports_folder}")
                 
                 # 보고서 생성 - 직접 경로 지정
                 generator = ReportGenerator()
@@ -1627,6 +1648,8 @@ class EnhancedPDFCheckerGUI:
                     result,
                     output_path=reports_folder / f"{report_filename}.html"
                 )
+                
+                self.logger.log(f"리포트 생성 완료: {reports_folder}")
                 
                 # 결과에 따라 파일 이동 (폴더 감시인 경우만)
                 issues = result.get('issues', [])
@@ -2044,14 +2067,35 @@ class EnhancedPDFCheckerGUI:
             
         item = self.realtime_tree.item(selection[0])
         filename = item['text']
+        folder_name = item['values'][0]
         
-        # 보고서 찾기 및 열기
-        reports_path = Path("reports")
-        for report_file in reports_path.glob(f"*{filename}*.html"):
-            webbrowser.open(str(report_file))
-            break
+        # 파일이 원래 있던 폴더에서 reports 폴더 찾기
+        for config in self.folder_watcher.folder_configs.values():
+            if hasattr(config, 'path') and config.path.name == folder_name:
+                reports_path = config.path / "reports"
+                break
         else:
-            messagebox.showinfo("정보", "보고서를 찾을 수 없습니다.")
+            # 드래그앤드롭의 경우, 파일 이름으로 reports 폴더 찾기
+            # 여러 위치에서 reports 폴더를 찾아봄
+            possible_paths = [
+                Path("reports"),  # 기본 위치
+                Path.cwd() / "reports",  # 현재 작업 디렉토리
+            ]
+            
+            # 최근 처리한 파일 정보에서 경로 찾기 시도
+            for path in possible_paths:
+                if path.exists():
+                    for report_file in path.glob(f"*{Path(filename).stem}*.html"):
+                        webbrowser.open(str(report_file))
+                        return
+            
+        # reports 폴더에서 보고서 찾기
+        if 'reports_path' in locals() and reports_path.exists():
+            for report_file in reports_path.glob(f"*{Path(filename).stem}*.html"):
+                webbrowser.open(str(report_file))
+                return
+        
+        messagebox.showinfo("정보", "보고서를 찾을 수 없습니다.")
     
     def _show_in_folder_realtime(self):
         """폴더에서 보기"""
@@ -2064,7 +2108,7 @@ class EnhancedPDFCheckerGUI:
         
         # 폴더 열기
         for config in self.folder_watcher.folder_configs.values():
-            if config.path.name == folder_name:
+            if hasattr(config, 'path') and config.path.name == folder_name:
                 try:
                     os.startfile(str(config.path))
                 except:
@@ -2145,7 +2189,7 @@ PDF 버전: {latest.get('pdf_version', '-')}
         
         # 보고서 찾기 및 열기
         reports_path = Path("reports")
-        for report_file in reports_path.glob(f"*{filename}*.html"):
+        for report_file in reports_path.glob(f"*{Path(filename).stem}*.html"):
             webbrowser.open(str(report_file))
             break
         else:
